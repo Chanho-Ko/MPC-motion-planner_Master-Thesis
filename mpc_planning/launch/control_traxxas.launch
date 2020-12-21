@@ -1,0 +1,3 @@
+<launch>
+  <node pkg="mpc_planning" type="mpc_planning_node" name="mpc_planning_node" output="screen" />
+</launch>
