@@ -76,6 +76,8 @@ void Planner::solve_OP(const int i)
     VectorXd inst_target(1);
     inst_target = ilqr.switch_inst_index(x, u);
     instTarget_hist[i] = inst_target[0];
+
+    itr_num[i] = ilqr.itr_;
 }
 
 void iLQRsolver::set_mpc_params()
@@ -85,7 +87,7 @@ void iLQRsolver::set_mpc_params()
     input_dim = 2;
     dt = 0.05;
     N = 20;
-    n_itrs = 100;
+    n_itrs = 5;
     n_line = 10;
     J_reltol = 1e-6;
     diff_eps = 1e-5;

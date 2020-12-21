@@ -32,6 +32,7 @@ private:
     vector<VectorXd> x_hist;
     vector<VectorXd> u_hist;
     VectorXd instTarget_hist;    
+    VectorXd itr_num;  
     vector<microseconds> cal_time_vec;
 
 public:
@@ -100,6 +101,7 @@ void Planner::initialize()
     x_hist = vector<VectorXd>(N_final,VectorXd::Zero(N_state));
     u_hist = vector<VectorXd>(N_final,VectorXd::Zero(N_input));
     instTarget_hist = VectorXd::Zero(N_final);
+    itr_num = VectorXd::Zero(N_final);
     cal_time_vec = vector<microseconds>(N_final);
 
     x[5] = ilqr.v_init/3.6; // Initial velocity
@@ -116,7 +118,8 @@ void Planner::writeData()
                 << cal_time_vec[i].count()/1000.0 << " "
                 << x_hist[i].transpose() << " "
                 << u_hist[i].transpose() << " "
-                << instTarget_hist[i] << endl;
+                << instTarget_hist[i] << " "
+                << itr_num[i] << endl;
     }
     writeFile.close();
 }

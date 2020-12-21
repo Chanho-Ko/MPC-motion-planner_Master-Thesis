@@ -71,6 +71,7 @@ private:
     MatrixXd Qx, Qu, Qxx, Quu, Qux, invQuu;
 
 public:
+    int itr_;
     double pi = 3.141592;
     size_t state_dim;
     size_t input_dim;
@@ -79,6 +80,7 @@ public:
     size_t N;
     double v_init;
     
+
     iLQRsolver();
     void initialize_mtx();
     void set_mpc_params();
@@ -293,9 +295,8 @@ void iLQRsolver::ilqr_iterate(
     forward_propagation(x0, u_array, x_array);
     J_opt = trajectory_cost(x_array, u_array);
 
-    int itr_ = 0;
     for (int itr = 0; itr < n_itrs; itr++){
-        itr_ = itr;
+        itr_ = itr+1;
         // Initialization of Vx, Vxx
         build_ADFun(N, f, l);
         xu << x_array[N], u_array[N];
