@@ -16,6 +16,8 @@ using CppAD::NearEqual;
 using Eigen::Matrix;
 using Eigen::Dynamic;
 
+#define STATE_NUM 3
+
 typedef Matrix< double    , Dynamic, Dynamic > MatrixXd;
 typedef Matrix< AD<double>, Dynamic, Dynamic > MatrixAD;
 
@@ -36,6 +38,7 @@ private:
     // solver settings
     size_t n_itrs;
     size_t n_line;
+    double J_min;
     double J_reltol;
     double diff_eps;
     bool converged = false;
@@ -79,6 +82,7 @@ public:
     double t_cur = 0;
     size_t N;
     double v_init;
+    double v = 30 / 3.6;
     
 
     iLQRsolver();
@@ -86,10 +90,6 @@ public:
     void set_mpc_params();
     void set_vehicle_params();
     void debuging();
-    template <typename var>
-    Matrix< var, 1, 1 > switch_inst_index(
-        const Matrix< var, Dynamic, 1 > &x,
-        const Matrix< var, Dynamic, 1 > &u);
 
     template <typename var>
     Matrix< var, Dynamic, 1 > dynamics_continuous(
@@ -98,62 +98,17 @@ public:
         const Matrix< var, Dynamic, 1 > &u)
     {
         // state, input
-        var beta = x[0], r = x[1], psi = x[2], x_glo = x[3], y_glo = x[4], v = x[5];
-        var delta = u[0], T = u[1];
+        var psi = x[2];
+        var delta = u[0];
 
-        // Vertical Forces
-        var ay = v*r;
-        var Fzfl = (g*lr/2-ax*h/2-ay*lr*h/Lw+ax*ay*h*h/g/Lw)*m/(lr+lf);
-        var Fzfr = (g*lr/2-ax*h/2+ay*lr*h/Lw-ax*ay*h*h/g/Lw)*m/(lr+lf);
-        var Fzrl = (g*lf/2+ax*h/2-1.2*ay*lf*h/Lw-ax*ay*h*h/g/Lw)*m/(lr+lf);
-        var Fzrr = (g*lf/2+ax*h/2+1.2*ay*lf*h/Lw+ax*ay*h*h/g/Lw)*m/(lr+lf);
-
-        // Lateral Forces (Dugoff tire model, assuming longitudinal slip is zero)
-        var alpha_f = delta - beta - r*lf/v;
-        var alpha_r = -beta + r*lr/v;
-        Matrix< var, 1, 1 > Fy1, Fy2, Fy3, Fy4;
-        Fy1 = dugoff_model(Cf, Fzfl, alpha_f);
-        Fy2 = dugoff_model(Cf, Fzfr, alpha_f);
-        Fy3 = dugoff_model(Cr, Fzrl, alpha_r);
-        Fy4 = dugoff_model(Cr, Fzrr, alpha_r);
-        var Fyfl = Fy1[0], Fyfr = Fy2[0], Fyrl = Fy3[0], Fyrr = Fy4[0];
-
-        var betadot = (Fyfl+Fyfr+Fyrl+Fyrr)/v/m - r;
-        var rdot = ((Fyfl+Fyfr)*lf - (Fyrl+Fyrr)*lr)/Iz; 
-        var psidot = r;
-        var Xdot = v * cos(psi+beta);
-        var Ydot = v * sin(psi+beta);
-        var vdot = (T/reff - 0.0225*m*g - v*v*Cd*rho*A/2)/(m+4*Iw/reff/reff);
+        // State-space
+        var Xdot = v * cos(psi+delta);
+        var Ydot = v * sin(psi+delta);
+        var Pdot = v/L*sin(delta);
 
         Matrix< var, Dynamic, 1 > dx(state_dim);
-        dx << betadot, rdot, psidot, Xdot, Ydot, vdot;
+        dx << Xdot, Ydot, Pdot;
         return dx;
-    }
-    
-    template <typename var>
-    Matrix< var, 1, 1 > dugoff_model(
-        const double &Ca,
-        const var &Fz,
-        const var &alpha)
-    {
-        var F = 1;
-        Matrix< var, 1, 1 > Fy;
-        Fy[0] = 1e-1;
-        if (abs(alpha) > 0.01){
-            
-            var lammda = mu*Fz/pow(2*pow(Ca*tan(alpha),2)+1,1/2);
-            
-            if (lammda < 1 && lammda > 0) {
-                F = (2-lammda)*lammda;
-                
-            }
-            
-            Fy[0] = Ca*tan(alpha)*F;
-
-        }else{
-            Fy[0] = Ca*tan(alpha);
-        }
-        return Fy;
     }
     
     template <typename var>
@@ -176,31 +131,6 @@ public:
         var t = i * dt;
         dx = dynamics_continuous(t, x, u);
         x_new = x + dx * dt;
-        return x_new;
-#endif
-
-#ifdef __DYN_RK4__
-        Matrix< var, Dynamic, 1 > dx(state_dim);
-        Matrix< var, Dynamic, 1 > x_new(state_dim);
-        Matrix< var, Dynamic, 1 > k1(state_dim);
-        Matrix< var, Dynamic, 1 > k2(state_dim);
-        Matrix< var, Dynamic, 1 > k3(state_dim);
-        Matrix< var, Dynamic, 1 > k4(state_dim);
-        var t = i * dt;
-        var t_;
-        Matrix< var, Dynamic, 1 > x_(state_dim);
-
-        k1 = dynamics_continuous(t, x, u);
-        x_ = x + 0.5*k1*dt;
-        k2 = dynamics_continuous(t_, x_, u);
-
-        x_ = x + 0.5*k2*dt;
-        k3 = dynamics_continuous(t_, x_, u);
-
-        t_ = t + dt;
-        x_ = x + k3*dt;
-        k4 = dynamics_continuous(t_, x_, u);
-        x_new = x + (k1 + 2*k2 + 2*k3 + k4) * (dt/6.0);
         return x_new;
 #endif
     }
@@ -280,6 +210,45 @@ public:
         vector<MatrixXd> &K_array_opt);
 };
 
+template <typename var>
+    Matrix< var, 1, 1 > iLQRsolver::cost_instantaneous(
+        const size_t &i,
+        const Matrix< var, Dynamic, 1 > &x,
+        const Matrix< var, Dynamic, 1 > &u,
+        const Matrix< var, Dynamic, 1 > &u_p)
+    {
+        // state, input
+        var x_glo = x[0], y_glo = x[1], psi = x[2];
+        var delta = u[0];
+        var delta_d = u_p[0]-u[0];
+
+        Matrix< var, 1, 1 > cost;
+        //cost[0] += Q_pos * pow(x_glo-x_ref, 2);
+        cost[0] += Q_pos * pow(y_glo-y_ref, 2);
+        cost[0] += R_delta * pow(delta, 2);
+        cost[0] += S_delta * pow(delta_d, 2);
+        //cost[0] += S_T * pow(T_d, 2);
+
+    
+        /************************** Obstacle Potential Field **************************/
+        double af = 3*sqrt(2)/2, b = 2.5*sqrt(2)/2;
+        int p_obs = 30;
+        var K_obs;
+    
+        K_obs = pow(pow((x_glo - p_obs)/af,2) + pow((y_glo - 1.9)/b,2), 0.5) - 1;
+        cost[0] += 5*exp(-1*K_obs);
+
+        /******************************************************************************/
+    
+        /*********************** Road & Lane Potential Field **************************/
+        //int B = 200;
+        //cost[0] += 1/2*B*pow( pow(1/(y_glo+2),2)+pow(1/(y_glo-6),2), 2); // Road boundary
+        //cost[0] += 10*exp(-pow((y_glo+2)/0.5,2)); // Lane
+        /******************************************************************************/
+
+        return cost;
+    }
+
 void iLQRsolver::ilqr_iterate(
         const VectorXd &x0,
         const vector<VectorXd> &u_init,
@@ -294,9 +263,10 @@ void iLQRsolver::ilqr_iterate(
     u_array = u_init;
     forward_propagation(x0, u_array, x_array);
     J_opt = trajectory_cost(x_array, u_array);
-
+    J_opt[0] = 1e+6;
     for (int itr = 0; itr < n_itrs; itr++){
         itr_ = itr+1;
+        cout << "Iteration : " << itr_ << endl;
         // Initialization of Vx, Vxx
         build_ADFun(N, f, l);
         xu << x_array[N], u_array[N];
@@ -352,17 +322,20 @@ void iLQRsolver::ilqr_iterate(
         for (int j = 0; j < n_line; j++) {
             alpha = pow(1.1, -pow(j, 2));
             // alpha = pow(0.8, j);
-
+            
             apply_control(x_array, u_array, k_array, K_array, alpha, x_array_new, u_array_new);
             J_new = trajectory_cost(x_array_new, u_array_new);
             //std::cout << "u_array_new :  \n" << u_array_new[0] << "\n"  << u_array_new[1] << "\n"  << u_array_new[5] << "\n"  << u_array_new[10]<< "\n"   << u_array_new[19] << std::endl;
             //std::cout << "x_array_new :  \n" << x_array_new[1] << std::endl;
+            cout << "line search Num : " << j << endl;
+            cout << "J_opt : " << J_opt[0] << endl;
+            cout << "J_new : " << J_new[0] << endl;
             if (itr == 0 && j == 0){
                 J_opt = J_new;
                 x_array = x_array_new;
                 u_array = u_array_new;
             }else {
-                if (abs((J_opt[0]-J_new[0])/J_opt[0]) < J_reltol) {
+                if (abs((J_opt[0]-J_new[0])/J_opt[0]) < J_reltol || J_opt[0] <= J_min || J_new[0] <= J_min || (J_new[0] > J_opt[0] && j==0 )) {
                     J_opt = J_new;
                     x_array = x_array_new;
                     u_array = u_array_new;
@@ -376,12 +349,7 @@ void iLQRsolver::ilqr_iterate(
                     break;
                 }
             }
-            
-            
-            
-
         }
-
         if (converged)
             break;
     }
@@ -393,62 +361,39 @@ void iLQRsolver::ilqr_iterate(
 
 }
 
-template <typename var>
-    Matrix< var, 1, 1 > iLQRsolver::switch_inst_index(
-        const Matrix< var, Dynamic, 1 > &x,
-        const Matrix< var, Dynamic, 1 > &u)
-    {
-        // state, input
-        var beta = x[0], r = x[1], psi = x[2], x_glo = x[3], y_glo = x[4], v = x[5];
-        var delta = u[0], T = u[1];
-
-        // Vertical Forces
-        var ay = v*r;
-        var Fzfl = (g*lr/2-ax*h/2-ay*lr*h/Lw+ax*ay*h*h/g/Lw)*m/(lr+lf);
-        var Fzfr = (g*lr/2-ax*h/2+ay*lr*h/Lw-ax*ay*h*h/g/Lw)*m/(lr+lf);
-        var Fzrl = (g*lf/2+ax*h/2-1.2*ay*lf*h/Lw-ax*ay*h*h/g/Lw)*m/(lr+lf);
-        var Fzrr = (g*lf/2+ax*h/2+1.2*ay*lf*h/Lw+ax*ay*h*h/g/Lw)*m/(lr+lf);
-
-        // Lateral Forces (Dugoff tire model, assuming longitudinal slip is zero)
-        var alpha_f = delta - beta - r*lf/v;
-        var alpha_r = -beta + r*lr/v;
-        Matrix< var, 1, 1 > Fy1, Fy2, Fy3, Fy4;
-        Fy1 = dugoff_model(Cf, Fzfl, alpha_f);
-        Fy2 = dugoff_model(Cf, Fzfr, alpha_f);
-        Fy3 = dugoff_model(Cr, Fzrl, alpha_r);
-        Fy4 = dugoff_model(Cr, Fzrr, alpha_r);
-        var Fyfl = Fy1[0], Fyfr = Fy2[0], Fyrl = Fy3[0], Fyrr = Fy4[0];
-
-        var arg1 = Fyfl/Fzfl, arg2 = Fyfr/Fzfr, arg3 = Fyrl/Fzrl, arg4 = Fyrr/Fzrr, arg5 = ay/g;
-        var val = arg1, val_temp = arg3;
-        int index = 1, index_temp = 3;
-        if (arg2 > val){
-            val = arg2;
-            index = 2;
-        }
-        if (arg4 > val_temp){
-            val_temp = arg4;
-            index_temp = 4;
-        }
-        if (arg5 > val_temp){
-            val_temp = arg5;
-            index_temp = 5;
-        }
-        if (val_temp > val){
-            index = index_temp;
-        }
-
-        inst_index = index;
-        Matrix< var, 1, 1 > return_val;
-        return_val[0] = inst_index;
-        return return_val;
-    }
-
 iLQRsolver::iLQRsolver()
 {
     set_mpc_params();
     set_vehicle_params();
     initialize_mtx();   
+}
+
+void iLQRsolver::set_mpc_params()
+{
+    // solver settings
+    state_dim = 3;
+    input_dim = 1;
+    dt = 0.05;
+    N = 6;
+    n_itrs = 10;
+    n_line = 3;
+    J_min = 1e-3;
+    J_reltol = 1e-3;
+    diff_eps = 1e-7;
+    
+    // cost related variables
+    double yaw_error_max = 1.8*pi/180;
+    double pos_error_max = 0.5;
+    double v_error_max = 0.03; //0.12
+    double SF = 1;
+    Q_yaw = SF*1/pow(yaw_error_max,2);
+    Q_pos = SF*1/pow(pos_error_max,2);
+    Q_v = SF*1/pow(v_error_max,2);
+    R_delta = 5;
+    R_T = 0.0002;
+    S_delta = 3000;
+    S_T = 0.0005;
+    y_ref = 2.;
 }
 
 void iLQRsolver::initialize_mtx()
@@ -464,3 +409,33 @@ void iLQRsolver::initialize_mtx()
     xu = VectorXd(state_dim+input_dim);
 }
 
+void iLQRsolver::set_vehicle_params()
+{   
+    /* Simulation parameter */
+    mu = 0.9;
+    v_init = 60; // kph
+
+    /* Vehicle body */
+    m = 1650 + 180; // Sprung mass and unsprung mass
+    g = 9.81;
+    Iz = 3234;
+    Lw = 1.6; // Track width
+    lf = 1.4;
+    lr = 1.65;
+    L = lf + lr;
+    h = 0.53;
+    ax = 0; ay = 0;
+
+    /* Tire */
+    reff = 0.353;
+    Iw = 0.9; // wheel inertia
+    // norminal cornering stiffness [N/rad]
+    Cf = (1305.3)*180/pi; // Fzf = 4856*2 N
+    Cr = (1122.7)*180/pi; // Fzr = 4140*2 N
+
+
+    /* Aero Dynamics */
+    A = 2.8;
+    rho = 1.206;
+    Cd = 0.3;
+}

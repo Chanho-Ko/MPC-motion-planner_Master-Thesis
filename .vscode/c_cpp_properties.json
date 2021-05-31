@@ -1,0 +1,18 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "",
+        "limitSymbolsToIncludedHeaders": true
+      },
+      "includePath": [
+        "/home/nvidia/catkin_ws/devel/include/**",
+        "/opt/ros/melodic/include/**",
+        "/home/nvidia/catkin_ws/src/MPC-motion-planner_Master-Thesis/mpc_planning/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS"
+    }
+  ],
+  "version": 4
+}

@@ -17,7 +17,7 @@ private:
     ros::Subscriber sub_states;
     ros::Publisher pub_inputs;
 
-    int sim_time = 15;
+    int sim_time = 5;
     int N_state, N_input, Hp;
     iLQRsolver ilqr;
     VectorXd x;
@@ -77,11 +77,11 @@ void Planner::joyCallback(const sensor_msgs::Joy::ConstPtr& msg)
 void Planner::statesCallback(const std_msgs::Float32MultiArray::ConstPtr& msg)
 {
     /* State update from estimator */
-    double vx = msg->data[2], vy = msg->data[3];
-    x(0) = msg->data[0];
-    x(1) = msg->data[1];
-    x(2) = msg->data[6];
-    x(3) = sqrt(vx*vx+vy*vy);
+    // double vx = msg->data[2], vy = msg->data[3];
+    // x(0) = msg->data[0];
+    // x(1) = msg->data[1];
+    // x(2) = msg->data[6];
+    // x(3) = sqrt(vx*vx+vy*vy);
 }
 void Planner::initialize()
 {
@@ -91,7 +91,7 @@ void Planner::initialize()
     Hp = ilqr.N;
     N_state = ilqr.state_dim;
     N_input = ilqr.input_dim;
-    N_final = sim_time*Hp;
+    N_final = sim_time/ilqr.dt;
     x = VectorXd::Zero(ilqr.state_dim);
     u_init = vector<VectorXd>(Hp+1,VectorXd::Zero(N_input));
     x_array_opt = vector<VectorXd>(Hp+1,VectorXd::Zero(N_state));
@@ -104,21 +104,21 @@ void Planner::initialize()
     itr_num = VectorXd::Zero(N_final);
     cal_time_vec = vector<microseconds>(N_final);
 
-    x[5] = ilqr.v_init/3.6; // Initial velocity
-
 }
 
 void Planner::writeData()
 {
     ofstream writeFile;
-    writeFile.open("/home/chanhoko/save_data/mpc_test.txt");
+    writeFile.open("/home/nvidia/save_data/mpc_test.csv");
     if (writeFile.is_open()) {
+        writeFile << "cal_time,x,y,yaw,steer_cmd,itr_num" << endl;
         for (int i = 0; i < N_final; i++)
             writeFile
-                << cal_time_vec[i].count()/1000.0 << " "
-                << x_hist[i].transpose() << " "
-                << u_hist[i].transpose() << " "
-                << instTarget_hist[i] << " "
+                << cal_time_vec[i].count()/1000.0 << ","
+                << x_hist[i][0] << ","
+                << x_hist[i][1] << ","
+                << x_hist[i][2] << ","
+                << u_hist[i].transpose() << ","
                 << itr_num[i] << endl;
     }
     writeFile.close();
@@ -128,21 +128,21 @@ void Planner::tf_broadcaster()
 {
     /* Transformation broadcaster for Rviz visualization */
 
-    static tf2_ros::TransformBroadcaster br;
-    geometry_msgs::TransformStamped transformStamped;
+    // static tf2_ros::TransformBroadcaster br;
+    // geometry_msgs::TransformStamped transformStamped;
 
-    transformStamped.header.stamp = ros::Time::now();
-    transformStamped.header.frame_id = "base_link";
-    transformStamped.child_frame_id = "robot";
-    transformStamped.transform.translation.x = x[3];
-    transformStamped.transform.translation.y = x[4];
-    transformStamped.transform.translation.z = 0.0;
-    tf2::Quaternion q;
-    q.setRPY(0, 0, x[2]);
-    transformStamped.transform.rotation.x = q.x();
-    transformStamped.transform.rotation.y = q.y();
-    transformStamped.transform.rotation.z = q.z();
-    transformStamped.transform.rotation.w = q.w();
+    // transformStamped.header.stamp = ros::Time::now();
+    // transformStamped.header.frame_id = "base_link";
+    // transformStamped.child_frame_id = "robot";
+    // transformStamped.transform.translation.x = x[3];
+    // transformStamped.transform.translation.y = x[4];
+    // transformStamped.transform.translation.z = 0.0;
+    // tf2::Quaternion q;
+    // q.setRPY(0, 0, x[2]);
+    // transformStamped.transform.rotation.x = q.x();
+    // transformStamped.transform.rotation.y = q.y();
+    // transformStamped.transform.rotation.z = q.z();
+    // transformStamped.transform.rotation.w = q.w();
 
-    br.sendTransform(transformStamped);
+    // br.sendTransform(transformStamped);
 }
